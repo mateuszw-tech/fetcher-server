@@ -1,7 +1,8 @@
-import json
-import threading
+﻿import json
+from threading import Thread
 import socket
-
+from time import sleep
+import os
 
 # HOST = '127.0.0.1'
 # PORT = 55555
@@ -11,104 +12,54 @@ class Server:
     def __init__(self, host, port):
         self.host = host
         self.port = port
+        self.buffer_size = 2048
+        self.delimiter = b"\\r\\n"
+        self.buffer = b""
 
-    @staticmethod
-    def process_data(data) -> None:
-        if data:
-            print(f'Received {data}')
-        else:
-            print("No data to process")
+    def receive_data_from_the_client(self, client: socket.socket):
+        while True:
+            try:
+                print(self.get_line_from_socket(client))
+            except Exception as e:
+                print(e)
 
-    # TODO: Obsłużyć przypadek 2 list w sockecie
-    # TODO: Rozgraniczyć listy JSON'owe, sprawdzić czy w stringu jest pełny JSON
+    def handle_terminal(self, client: socket.socket):
+        pass
 
-    def handle_client(self, conn: socket.socket, addr) -> None:
-        with conn:
+    def receive_data_thread(self, client_connection_socket: socket.socket):
+        receive_thread = Thread(target=self.receive_data_from_the_client, args=(client_connection_socket,))
+        receive_thread.start()
+        receive_thread.join()
+
+    def get_line_from_socket(self, client: socket.socket):
+        while self.delimiter not in self.buffer:
+            data = client.recv(self.buffer_size)
+            if not data:
+                return None
+            self.buffer += data
+        line, sep, self.buffer = self.buffer.partition(self.delimiter)
+        return line.decode("utf-8")
+
+    def handle_client(self, client_connection_socket: socket.socket, addr) -> None:
+        with client_connection_socket:
             print(f'Connected by: {addr}')
-            data = b''
-            while True:
-                packet = conn.recv(4096)
-                print(f"{packet.decode('utf-8')}")
-                if not packet:
-                    break
-                data += packet
-            # data = data.decode('utf-8')
-            # self.process_data(data)
+            self.receive_data_thread(client_connection_socket)
+
+    def get_client_connection(self, server_socket: socket.socket):
+        while True:
+            client_connection_socket, client_connection_address = server_socket.accept()
+            try:
+                self.handle_client(client_connection_socket, client_connection_address)
+            except Exception as e:
+                print(f"Client Disconnected, {e}")
 
     def start_server(self) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind((self.host, self.port))
-            s.listen()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+            server_socket.bind((self.host, self.port))
+            server_socket.listen()
             print(f'Server listening on port {self.host}:{self.port}')
-            while True:
-                conn, addr = s.accept()
-                self.handle_client(conn, addr)
 
-# class Server:
-#     def __init__(self, host: str, port: int):
-#         self.host = host
-#         self.port = port
-#
-#     @staticmethod
-#     def process_data(data: str) -> None:
-#         try:
-#             json_data = json.loads(data)
-#             print(f'Received JSON data: {json_data}')
-#         except json.JSONDecodeError as e:
-#             print(f"Error decoding JSON: {e}")
-#
-#     def handle_client(self, conn: socket.socket, addr) -> None:
-#         with conn:
-#             print(f'Connected by: {addr}')
-#             buffer = b''
-#             while True:
-#                 packet = conn.recv(4096)
-#                 print(f"x + {packet}")
-#                 if not packet:
-#                     break
-#                 buffer += packet
-#
-#                 # Decode the buffer into a string
-#                 buffer_str = buffer.decode('utf-8')
-#
-#                 # Process each complete JSON object
-#                 while True:
-#                     try:
-#                         # Find the end of the JSON object
-#                         end_idx = buffer_str.find('\n')
-#                         if end_idx == -1:
-#                             # No complete JSON object found
-#                             break
-#
-#                         # Extract JSON object and remove it from the buffer
-#                         json_str = buffer_str[:end_idx]
-#                         buffer_str = buffer_str[end_idx + 1:]
-#                         self.process_data(json_str)
-#                     except json.JSONDecodeError as e:
-#                         print(f"Error decoding JSON: {e}")
-#                         break
-#
-#                 # Update buffer with remaining data
-#                 buffer = buffer_str.encode('utf-8')
-#
-#     def start_server(self) -> None:
-#         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-#             s.bind((self.host, self.port))
-#             s.listen()
-#             print(f'Server listening on {self.host}:{self.port}')
-#             while True:
-#                 conn, addr = s.accept()
-#                 self.handle_client(conn, addr)
+            self.get_client_connection(server_socket)  # TODO: Thready na klientów / zmienić na get client connections
 
-    # def manage_clients(self, conn: socket.socket) -> None:
-    #     change_settings = input("do you want to change settings? y/n")
-    #     if change_settings == 'y':
-    #         # fetcher = input("which fetcher settings do you want to change?")
-    #         # #match - case do innych fetcherów
-    #         cities = input("which city do you want to collect?")
-    #         fetcher_settings: dict = {"fetcher": fetcher, "cities": cities}
-    #         conn.send(json.dumps(fetcher_settings).encode('utf-8'))
-    #     elif change_settings == 'n':
-    #         pass
-    #     else:
-    #         pass
+# TODO: Obsłużyć przypadek 2 list w sockecie
+# TODO: Rozgraniczyć listy JSON'owe, sprawdzić czy w stringu jest pełny JSON
