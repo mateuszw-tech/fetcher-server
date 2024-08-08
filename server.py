@@ -1,65 +1,72 @@
-﻿import json
-from threading import Thread
-import socket
-from time import sleep
-import os
-
-# HOST = '127.0.0.1'
-# PORT = 55555
+﻿import asyncio
+from climanager import *
 
 
 class Server:
     def __init__(self, host, port):
         self.host = host
         self.port = port
-        self.buffer_size = 2048
-        self.delimiter = b"\\r\\n"
+        self.clients = []
+        self.active_client = None
         self.buffer = b""
+        self.delimiter = b"\\r\\n"
+        self.buffer_size = 2048
 
-    def receive_data_from_the_client(self, client: socket.socket):
-        while True:
-            try:
-                print(self.get_line_from_socket(client))
-            except Exception as e:
-                print(e)
-
-    def handle_terminal(self, client: socket.socket):
-        pass
-
-    def receive_data_thread(self, client_connection_socket: socket.socket):
-        receive_thread = Thread(target=self.receive_data_from_the_client, args=(client_connection_socket,))
-        receive_thread.start()
-        receive_thread.join()
-
-    def get_line_from_socket(self, client: socket.socket):
+    async def get_line_from_buffer(self, reader: asyncio.StreamReader) -> str:
         while self.delimiter not in self.buffer:
-            data = client.recv(self.buffer_size)
+            data = await reader.read(self.buffer_size)
             if not data:
-                return None
+                break
             self.buffer += data
         line, sep, self.buffer = self.buffer.partition(self.delimiter)
-        return line.decode("utf-8")
+        return line.decode()
 
-    def handle_client(self, client_connection_socket: socket.socket, addr) -> None:
-        with client_connection_socket:
-            print(f'Connected by: {addr}')
-            self.receive_data_thread(client_connection_socket)
+    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        addr = writer.get_extra_info('peername')
+        print(f'Connected by: {addr}')
+        self.clients.append((reader, writer))
+        print(f'{self.clients}')
+        if self.active_client is None:
+            self.active_client = writer
 
-    def get_client_connection(self, server_socket: socket.socket):
+        try:
+            while True:
+                message: str = await self.get_line_from_buffer(reader)
+                print(f"Received from {addr}: {message}")
+        except Exception as e:
+            print(f"Error with client {addr}: {e}")
+        finally:
+            self.clients.remove((reader, writer))
+            writer.close()
+            await writer.wait_closed()
+
+    async def send_instructions(self):
         while True:
-            client_connection_socket, client_connection_address = server_socket.accept()
-            try:
-                self.handle_client(client_connection_socket, client_connection_address)
-            except Exception as e:
-                print(f"Client Disconnected, {e}")
+            if self.clients:
+                print("Available clients:")
+                for i, (_, writer) in enumerate(self.clients):
+                    addr = writer.get_extra_info('peername')
+                    print(f"{i}: {addr}")
 
-    def start_server(self) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-            server_socket.bind((self.host, self.port))
-            server_socket.listen()
-            print(f'Server listening on port {self.host}:{self.port}')
+                try:
+                    client_index = int(input("Select client index to send instructions: "))
+                    reader, writer = self.clients[client_index]
 
-            self.get_client_connection(server_socket)  # TODO: Thready na klientów / zmienić na get client connections
+                    instruction = input("Enter instruction to send: ")
+                    writer.write(instruction.encode())
+                    await writer.drain()
+                    print(f"Sent instruction to {writer.get_extra_info('peername')}")
+                except (ValueError, IndexError):
+                    print("Invalid client index")
+            else:
+                print("No clients connected")
 
-# TODO: Obsłużyć przypadek 2 list w sockecie
-# TODO: Rozgraniczyć listy JSON'owe, sprawdzić czy w stringu jest pełny JSON
+            await asyncio.sleep(1)
+
+    async def start_server(self):
+        server = await asyncio.start_server(self.handle_client, self.host, self.port)
+        addr = server.sockets[0].getsockname()
+        print(f'Server listening on {addr}')
+
+        async with server:
+            await asyncio.gather(server.serve_forever(), self.send_instructions())
