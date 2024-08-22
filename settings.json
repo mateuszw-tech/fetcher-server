@@ -1,0 +1,7 @@
+{
+  "SprzedajemyFetcher": {
+    "cities": ["Malbork", "Elbląg"],
+    "fetching_status": "True"
+  },
+  "OlxFetcher": ""
+}

@@ -1,4 +1,6 @@
 ﻿import asyncio
+import databaseManager
+import json
 
 
 class Server:
@@ -7,8 +9,9 @@ class Server:
         self.port = port
         self.clients = []
         self.buffer = b""
-        self.delimiter = b"\\r\\n"
+        self.delimiter = b"\r\n"
         self.buffer_size = 2048
+        self.databaseManager = databaseManager.DatabaseManager()
 
     async def get_line_from_buffer(self, reader: asyncio.StreamReader) -> str:
         while self.delimiter not in self.buffer:
@@ -17,7 +20,7 @@ class Server:
                 break
             self.buffer += data
         line, sep, self.buffer = self.buffer.partition(self.delimiter)
-        return line.decode()
+        return line.decode(encoding='UTF-8')
 
     async def get_data_from_client(self, client):
         reader, writer = client
@@ -25,7 +28,7 @@ class Server:
         try:
             while True:
                 message: str = await self.get_line_from_buffer(reader)
-                print(f"Received from {addr}: {message}")
+                self.databaseManager.insert_data_to_database(json.loads(message))
         except Exception as e:
             print(f"Error with client {addr}: {e}")
         finally:
@@ -40,16 +43,18 @@ class Server:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self.clients.append((reader, writer))
 
-    # try:
-    #     while True:
-    #         message: str = await self.get_line_from_buffer(reader)
-    #         # print(f"Received from {addr}: {message}")
-    # except Exception as e:
-    #     print(f"Error with client {addr}: {e}")
-    # finally:
-    #     self.clients.remove((reader, writer))
-    #     writer.close()
-    #     await writer.wait_closed()
+        await self.get_data_from_client((reader, writer))
+        # try:
+        #     while True:
+        #         message: str = await self.get_line_from_buffer(reader)
+        #         # print(f"Received from {addr}: {message}")
+        # except Exception as e:
+        #     # print(f"Error with client {addr}: {e}")
+        #     pass
+        # finally:
+        #     self.clients.remove((reader, writer))
+        #     writer.close()
+        #     await writer.wait_closed()
 
     #
     def show_active_clients(self) -> None:
