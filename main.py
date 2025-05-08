@@ -1,6 +1,6 @@
 import asyncio
 from server import Server
-from climanager import CliManager
+from cli_manager import CliManager
 
 manager = CliManager()
 
